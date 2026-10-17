@@ -6,65 +6,71 @@ import java.sql.SQLException;
 import java.sql.Statement;
 
 /**
- * Manages SQLite database connection and schema initialization.
- * Configures critical PRAGMAs for concurrency and data integrity:
- * 1. foreign_keys = ON (Enforces relational constraints)
- * 2. journal_mode = WAL (Write-Ahead Logging for concurrent reads and writes)
- * 3. busy_timeout = 5000 (Waits up to 5s on locked database before throwing SQLITE_BUSY)
+ * Manages MySQL database connections and initializes the schema.
+ * Credentials and URL are loaded from environment variables with safe defaults:
+ * - DB_URL: defaults to jdbc:mysql://localhost:3306/inventory_orders
+ * - DB_USER: defaults to root
+ * - DB_PASSWORD: defaults to root (never printed or exposed)
  */
 public class DatabaseManager {
-    private final String dbUrl;
+    private static final String DEFAULT_URL =
+            "jdbc:mysql://localhost:3306/inventory_orders?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC";
+    private static final String DEFAULT_USER = "root";
+    private static final String DEFAULT_PASSWORD = "root";
 
-    public DatabaseManager(String dbPath) {
-        this.dbUrl = "jdbc:sqlite:" + dbPath;
+    private final String url;
+    private final String user;
+    private final String password;
+
+    public DatabaseManager() {
+        this.url = System.getenv().getOrDefault("DB_URL", DEFAULT_URL);
+        this.user = System.getenv().getOrDefault("DB_USER", DEFAULT_USER);
+        this.password = System.getenv().getOrDefault("DB_PASSWORD", DEFAULT_PASSWORD);
+        initSchema();
+    }
+
+    public DatabaseManager(String url, String user, String password) {
+        this.url = url;
+        this.user = user;
+        this.password = password;
         initSchema();
     }
 
     public Connection getConnection() throws SQLException {
-        Connection conn = DriverManager.getConnection(dbUrl);
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("PRAGMA foreign_keys = ON;");
-            stmt.execute("PRAGMA journal_mode = WAL;");
-            stmt.execute("PRAGMA busy_timeout = 5000;");
-        }
-        return conn;
+        return DriverManager.getConnection(url, user, password);
     }
 
-    private void initSchema() {
+    public void initSchema() {
         String createProductsTable = """
             CREATE TABLE IF NOT EXISTS products (
-                sku         TEXT PRIMARY KEY,
-                name        TEXT NOT NULL,
-                price       INTEGER NOT NULL CHECK(price >= 0),
-                stock       INTEGER NOT NULL CHECK(stock >= 0)
-            );
+                sku         VARCHAR(64) PRIMARY KEY,
+                name        VARCHAR(255) NOT NULL,
+                price       BIGINT NOT NULL CHECK (price >= 0),
+                stock       INT NOT NULL CHECK (stock >= 0),
+                INDEX idx_products_stock (stock)
+            ) ENGINE=InnoDB;
             """;
 
         String createOrdersTable = """
             CREATE TABLE IF NOT EXISTS orders (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                customer    TEXT NOT NULL,
-                created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-                status      TEXT NOT NULL CHECK(status IN ('PLACED', 'CANCELLED')),
-                total       INTEGER NOT NULL CHECK(total >= 0)
-            );
+                id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+                customer    VARCHAR(255) NOT NULL,
+                created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                status      VARCHAR(32) NOT NULL CHECK (status IN ('PLACED', 'CANCELLED')),
+                total       BIGINT NOT NULL CHECK (total >= 0)
+            ) ENGINE=InnoDB;
             """;
 
         String createOrderLinesTable = """
             CREATE TABLE IF NOT EXISTS order_lines (
-                order_id        INTEGER NOT NULL,
-                sku             TEXT NOT NULL,
-                quantity        INTEGER NOT NULL CHECK(quantity > 0),
-                price_at_order  INTEGER NOT NULL CHECK(price_at_order >= 0),
+                order_id        BIGINT NOT NULL,
+                sku             VARCHAR(64) NOT NULL,
+                quantity        INT NOT NULL CHECK (quantity > 0),
+                price_at_order  BIGINT NOT NULL CHECK (price_at_order >= 0),
                 PRIMARY KEY (order_id, sku),
-                FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-                FOREIGN KEY (sku) REFERENCES products(sku)
-            );
-            """;
-
-        String createIndexes = """
-            CREATE INDEX IF NOT EXISTS idx_products_stock ON products(stock);
-            CREATE INDEX IF NOT EXISTS idx_orderlines_order ON order_lines(order_id);
+                CONSTRAINT fk_orderlines_order FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
+                CONSTRAINT fk_orderlines_product FOREIGN KEY (sku) REFERENCES products(sku)
+            ) ENGINE=InnoDB;
             """;
 
         try (Connection conn = getConnection();
@@ -72,9 +78,8 @@ public class DatabaseManager {
             stmt.execute(createProductsTable);
             stmt.execute(createOrdersTable);
             stmt.execute(createOrderLinesTable);
-            stmt.execute(createIndexes);
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to initialize database schema: " + e.getMessage(), e);
+            throw new RuntimeException("Failed to initialize MySQL schema: " + e.getMessage(), e);
         }
     }
 }
