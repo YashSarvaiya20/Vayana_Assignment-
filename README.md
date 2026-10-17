@@ -18,7 +18,7 @@ Database credentials and connection settings can be configured via environment v
 | :--- | :--- | :--- |
 | `DB_URL` | `jdbc:mysql://localhost:3306/inventory_orders?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC` | JDBC connection URL |
 | `DB_USER` | `root` | Database username |
-| `DB_PASSWORD` | `root` | Database password |
+| `DB_PASSWORD` | `***` | Database password |
 
 ---
 
