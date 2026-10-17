@@ -1,0 +1,10 @@
+*.class
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+bin/
+out/
+.idea/
+*.iml
+.vscode/
